@@ -30,6 +30,7 @@ Korean text fits its box.
 | 5 | Right-click (Windows/Linux) or click (macOS) opens the menu; every entry is present and in the selected language. | ☐ | ☐ | ☐ |
 | 6 | Left-click opens the detail panel (Windows/Linux). | ☐ | n/a | ☐ |
 | 7 | Clicking outside the panel dismisses it. | ☐ | ☐ | ☐ |
+| 7a | Linux: repeat first open, focus another window, reopen, Escape from the Refresh button, and refresh while hidden with `QT_QPA_PLATFORM=wayland` and `xcb`. The native panel must open even before any other app window exists. `uv run python tests/manual_panel_lifecycle.py` checks exposure and focus on the selected backend without credentials or networking. | n/a | n/a | ☐ |
 
 ## Notifications
 

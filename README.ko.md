@@ -277,6 +277,9 @@ Slack은 앱 아이콘에 `packaging/resources/tokentray-512.png`를 쓰면 되�
 - Wayland에서는 알림 카드가 트레이 옆에 뜨도록 XWayland를 거쳐 실행합니다.
   `linux.force_xwayland = false`로 바꾸면 네이티브로 실행하지만 카드 위치는 컴포지터가
   정합니다.
+  Set it with `tokentray config set linux.force_xwayland false`, then restart
+  tokentray. The native Wayland detail panel opens without a parent window and
+  hides when another window takes focus or you press Escape.
 - SecretService 같은 키링 서비스가 없으면 시크릿을 소유자 전용 로컬 파일에 저장하고,
   셋업에서 이를 안내합니다.
 

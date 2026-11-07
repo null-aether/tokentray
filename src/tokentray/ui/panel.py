@@ -1,14 +1,14 @@
 """The detail card shown when the tray icon is clicked.
 
-A ``Qt.Popup`` window, so clicking anywhere else dismisses it — the behaviour
-people already expect from a tray flyout, and it saves having to manage focus.
+Native Wayland needs a managed tool window: a tray activation has no parent
+surface or input serial for a grabbing popup. Other platforms use ``Qt.Popup``.
 """
 
 from __future__ import annotations
 
 from typing import Callable
 
-from PySide6.QtCore import QPoint, QRect, QSize, Qt
+from PySide6.QtCore import QEvent, QPoint, QRect, QSize, Qt
 from PySide6.QtGui import QCursor, QFontMetrics, QGuiApplication
 from PySide6.QtWidgets import (
     QFrame,
@@ -47,7 +47,9 @@ class DetailPanel(QWidget):
         self.refresh_feedback.changed.connect(self._update_refresh_button)
         self._views: list[ProviderView] = []
         self.recovery = None
-        self.setWindowFlags(Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint)
+        self._managed_panel = QGuiApplication.platformName().startswith("wayland")
+        window_type = Qt.WindowType.Tool if self._managed_panel else Qt.WindowType.Popup
+        self.setWindowFlags(window_type | Qt.WindowType.FramelessWindowHint)
         # Keep the card shadow, not a second shadow around its transparent margins.
         self.setWindowFlag(Qt.WindowType.NoDropShadowWindowHint, True)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
@@ -81,12 +83,27 @@ class DetailPanel(QWidget):
         self.move(QPoint(x, y))
         self.show()
         self.raise_()
-        # A Qt::Popup is closed again the moment the application deactivates,
-        # and an agent app never became active to begin with - so the panel the
-        # tray menu just asked for died with the menu that asked for it. Taking
-        # activation is what a menu bar flyout does anyway.
+        # Tray-menu and IPC activations may arrive while the app is inactive.
+        # Take focus for keyboard dismissal and the managed Wayland flyout's
+        # activation-based lifetime, as well as for the native popup platforms.
         self.activateWindow()
         self._update_overlay()
+
+    def changeEvent(self, event) -> None:
+        # Tool windows have no popup grab to dismiss them on an outside click.
+        # A child losing focus (e.g. while rebuilding the content) is not enough;
+        # dismiss only when the entire window loses activation.
+        if (self._managed_panel and event.type() == QEvent.Type.ActivationChange
+                and not self.isActiveWindow()):
+            self.hide()
+        super().changeEvent(event)
+
+    def keyPressEvent(self, event) -> None:
+        if event.key() == Qt.Key.Key_Escape:
+            self.hide()
+            event.accept()
+            return
+        super().keyPressEvent(event)
 
     # -- rendering -------------------------------------------------------------
 
