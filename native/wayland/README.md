@@ -33,12 +33,18 @@ tokentray stop
 tokentray
 ```
 
-After clicking the tray icon, subsequent opens and data refreshes reuse that
-anchor. Before the first tray activation, no host coordinates are available and
-the app uses its usual fallback anchor. Output offsets and window sizes are in
-logical pixels; negative output origins and fractional scaling need no pixel
-ratio conversion. Rebuild this optional package after upgrading system Qt to a
-different minor version.
+SNI provides a click point, not the icon rectangle. Nearby clicks reuse the same
+anchor, with a tolerance derived from Qt's standard toolbar icon-button size;
+a larger move or a different output updates it. Data refreshes retain the anchor.
+Layer-shell anchors the visible card 4 logical pixels outside the desktop
+panel's reserved area, compensating for the transparent shadow padding. The
+padding is excluded from the native input region so it cannot block tray icons.
+Before the first tray activation, no host coordinates are available and the app
+uses its usual fallback anchor. Layer-shell offsets and Qt window sizes are in
+logical pixels; verify the tray host's coordinate convention on mixed-DPI setups.
+Rebuild this optional package after upgrading system Qt to a
+different minor version. TokenTray and this package must use the same bridge
+API version; versions before 0.2.0 do not support edge anchoring.
 
 ## Desktop checks
 

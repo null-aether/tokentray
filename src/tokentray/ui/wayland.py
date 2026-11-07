@@ -12,8 +12,8 @@ import os
 from functools import lru_cache
 
 from PySide6.QtCore import QObject, QPoint, QRect, QSize, Signal
-from PySide6.QtGui import QGuiApplication, QIcon
-from PySide6.QtWidgets import QSystemTrayIcon
+from PySide6.QtGui import QGuiApplication, QIcon, QRegion
+from PySide6.QtWidgets import QApplication, QStyle, QSystemTrayIcon
 
 log = logging.getLogger("tokentray.wayland")
 
@@ -26,6 +26,9 @@ def native_bridge():
         from tokentray_wayland import Bridge
 
         bridge = Bridge()
+        if getattr(bridge, "API_VERSION", 1) < 2:
+            log.warning("native positioning requires tokentray-wayland >= 0.2.0")
+            return None
         if not bridge.layer_supported():
             log.info("layer-shell v4 unavailable; keeping the standard Wayland window")
             return None
@@ -58,7 +61,17 @@ class NativeTrayIcon(QObject):
 
     def _activate(self, _active: bool, position: QPoint) -> None:
         if not position.isNull():
-            self._anchor = QRect(position, QSize(1, 1))
+            # SNI supplies a mouse point, not the icon's rectangle. Keep nearby
+            # clicks on the same icon from moving the flyout; use the style's
+            # standard icon-button extent rather than rounding screen coordinates.
+            style = QApplication.style()
+            extent = (style.pixelMetric(QStyle.PixelMetric.PM_ToolBarIconSize)
+                      + 2 * style.pixelMetric(QStyle.PixelMetric.PM_ToolBarItemMargin))
+            previous = self._anchor.center()
+            same_output = (QGuiApplication.screenAt(previous) == QGuiApplication.screenAt(position))
+            nearby = max(abs(position.x() - previous.x()), abs(position.y() - previous.y())) <= extent
+            if self._anchor.isNull() or not same_output or not nearby:
+                self._anchor = QRect(position, QSize(1, 1))
         token = self._bridge.tray_token(self._pointer(self._item))
         if token:
             os.environ["XDG_ACTIVATION_TOKEN"] = token.decode()
@@ -109,16 +122,44 @@ class NativeTrayIcon(QObject):
         self._bridge.tray_message(self._pointer(self._item), title.encode(), body.encode(), timeout)
 
 
-def place_panel(panel, screen, position: QPoint) -> bool:
+def layer_placement(area: QRect, anchor: QPoint, size: QSize, padding: int, gap: int = 4):
+    """Anchor the visible card to a panel edge, keeping shadow padding transparent.
+
+    Layer-shell's nonexclusive surfaces respect the desktop panel's reserved
+    space. The compositor supplies the perpendicular position, so clicking near
+    the top or bottom of the same tray icon cannot change the visible gap.
+    """
+    point = anchor - area.topLeft()
+    distances = {
+        "top": point.y(), "bottom": area.height() - point.y(),
+        "left": point.x(), "right": area.width() - point.x(),
+    }
+    edge = min(distances, key=distances.get)
+    inset = gap - padding
+    if edge in ("top", "bottom"):
+        x = max(inset, min(point.x() - size.width() // 2, area.width() - size.width() - inset))
+        # LayerShellQt anchors: top=1, bottom=2, left=4, right=8.
+        return (5, x, inset, 0, 0) if edge == "top" else (6, x, 0, 0, inset)
+    y = max(inset, min(point.y() - size.height() // 2, area.height() - size.height() - inset))
+    return (5, inset, y, 0, 0) if edge == "left" else (9, 0, y, inset, 0)
+
+
+def place_panel(panel, screen, anchor: QPoint) -> bool:
     bridge = native_bridge()
     if bridge is None or screen is None:
         return False
     from tokentray_wayland import pointer
 
+    from .popup import SHADOW_MARGIN
+
     # Create the QWidget's QWindow before first show, while it still has no
     # visible surface role. LayerShellQt installs the per-window integration.
     panel.winId()
-    origin = screen.geometry().topLeft()
-    local = position - origin
-    bridge.layer_place(pointer(panel.windowHandle()), pointer(screen), local.x(), local.y())
+
+    # The shadow may extend over the desktop panel, but it must not intercept
+    # clicks on tray icons below it. QWindow's mask defines the native input area.
+    panel.windowHandle().setMask(QRegion(panel.rect().adjusted(
+        SHADOW_MARGIN, SHADOW_MARGIN, -SHADOW_MARGIN, -SHADOW_MARGIN)))
+    placement = layer_placement(screen.geometry(), anchor, panel.size(), SHADOW_MARGIN)
+    bridge.layer_anchor(pointer(panel.windowHandle()), pointer(screen), *placement)
     return True

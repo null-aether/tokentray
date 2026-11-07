@@ -294,6 +294,8 @@ the webhook avatar in the channel settings.
   KStatusNotifierItem, with no compositor scripts or window rules.
   Clicking the tray icon while the detail panel is already open leaves its
   contents and position unchanged.
+  The native integration keeps a small visible gap outside the desktop panel;
+  nearby clicks inside the tray icon reuse the same anchor when reopening.
 - Without a keyring service such as SecretService, secrets fall back to an
   owner-only local file, and setup tells you so.
 

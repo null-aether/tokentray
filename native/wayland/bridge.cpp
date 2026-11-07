@@ -20,6 +20,11 @@ void registryRemoved(void *, wl_registry *, uint32_t) {}
 }
 
 extern "C" {
+int tokentray_bridge_api()
+{
+    return 2;
+}
+
 bool tokentray_layer_supported()
 {
     // Use a separate connection, without dispatching Qt's own event queue.
@@ -82,16 +87,17 @@ const char *tokentray_tray_token(KStatusNotifierItem *item)
     return token.constData();
 }
 
-void tokentray_layer_place(QWindow *window, QScreen *screen, int x, int y)
+void tokentray_layer_anchor(QWindow *window, QScreen *screen, int anchors,
+                           int left, int top, int right, int bottom)
 {
     auto *layer = LayerShellQt::Window::get(window);
     layer->setScope(QStringLiteral("tokentray-details"));
     layer->setScreen(screen);
-    layer->setAnchors(LayerShellQt::Window::Anchors{LayerShellQt::Window::AnchorTop}
-                      | LayerShellQt::Window::AnchorLeft);
-    layer->setMargins(QMargins(x, y, 0, 0));
-    // Offsets are relative to the full output; Python already avoids panel struts.
-    layer->setExclusiveZone(-1);
+    layer->setAnchors(LayerShellQt::Window::Anchors::fromInt(anchors));
+    layer->setMargins(QMargins(left, top, right, bottom));
+    // Respect the desktop panel's exclusive zone. Negative margins compensate
+    // only for the transparent shadow padding, leaving the visible card outside it.
+    layer->setExclusiveZone(0);
     layer->setLayer(LayerShellQt::Window::LayerTop);
     layer->setKeyboardInteractivity(LayerShellQt::Window::KeyboardInteractivityOnDemand);
 }

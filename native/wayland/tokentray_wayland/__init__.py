@@ -12,8 +12,18 @@ def pointer(value):
 
 
 class Bridge:
+    API_VERSION = 2
+
     def __init__(self):
         self.library = ctypes.CDLL(str(Path(__file__).with_name("libtokentray_wayland.so")))
+        try:
+            api = self.library.tokentray_bridge_api
+        except AttributeError as exc:
+            raise RuntimeError("Wayland bridge binary is older than its Python wrapper") from exc
+        api.restype = ctypes.c_int
+        api.argtypes = []
+        if api() != self.API_VERSION:
+            raise RuntimeError("Wayland bridge binary and Python wrapper have different API versions")
         signatures = {
             "layer_supported": (ctypes.c_bool, []),
             "qt_version": (ctypes.c_char_p, []),
@@ -24,7 +34,7 @@ class Bridge:
             "tray_visible": (None, [ctypes.c_void_p, ctypes.c_bool]),
             "tray_message": (None, [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_char_p, ctypes.c_int]),
             "tray_token": (ctypes.c_char_p, [ctypes.c_void_p]),
-            "layer_place": (None, [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int, ctypes.c_int]),
+            "layer_anchor": (None, [ctypes.c_void_p, ctypes.c_void_p] + [ctypes.c_int] * 5),
         }
         for name, (result, arguments) in signatures.items():
             function = getattr(self.library, "tokentray_" + name)

@@ -94,7 +94,7 @@ class DetailPanel(QWidget):
         if self._managed_panel:
             from .wayland import place_panel
 
-            place_panel(self, screen, QPoint(x, y))
+            place_panel(self, screen, anchor.center())
 
     def changeEvent(self, event) -> None:
         # Tool windows have no popup grab to dismiss them on an outside click.
