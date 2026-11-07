@@ -292,6 +292,8 @@ the webhook avatar in the channel settings.
   For placement next to the tray in native Wayland, build the optional
   [Wayland integration](native/wayland/README.md). It uses LayerShellQt and
   KStatusNotifierItem, with no compositor scripts or window rules.
+  Clicking the tray icon while the detail panel is already open leaves its
+  contents and position unchanged.
 - Without a keyring service such as SecretService, secrets fall back to an
   owner-only local file, and setup tells you so.
 

@@ -283,6 +283,8 @@ Slack은 앱 아이콘에 `packaging/resources/tokentray-512.png`를 쓰면 되�
   For placement next to the tray in native Wayland, build the optional
   [Wayland integration](native/wayland/README.md). It uses LayerShellQt and
   KStatusNotifierItem, with no compositor scripts or window rules.
+  Clicking the tray icon while the detail panel is already open leaves its
+  contents and position unchanged.
 - SecretService 같은 키링 서비스가 없으면 시크릿을 소유자 전용 로컬 파일에 저장하고,
   셋업에서 이를 안내합니다.
 

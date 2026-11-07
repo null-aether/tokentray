@@ -32,6 +32,7 @@ Korean text fits its box.
 | 7 | Clicking outside the panel dismisses it. | ☐ | ☐ | ☐ |
 | 7a | Linux: repeat first open, focus another window, reopen, Escape from the Refresh button, and refresh while hidden with `QT_QPA_PLATFORM=wayland` and `xcb`. The native panel must open even before any other app window exists. `uv run python tests/manual_panel_lifecycle.py` checks exposure and focus on the selected backend without credentials or networking. | n/a | n/a | ☐ |
 | 7b | With the optional Wayland package, click the real tray icon on each output and at each panel edge. The panel stays near that click after usage/refresh-result resizing, stays inside the output, hides on deactivation/Escape, and survives menu/language changes and shutdown. Check fractional scaling and the fallback without layer-shell or with mismatched Qt versions. | n/a | n/a | ☐ |
+| 7c | Click the tray icon repeatedly within its bounds while the panel is open. Its contents and position stay unchanged; a background poll keeps the original anchor. Dismiss the panel and click again to reopen it. | ☐ | n/a | ☐ |
 
 ## Notifications
 

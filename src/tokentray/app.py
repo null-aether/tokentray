@@ -273,6 +273,10 @@ class Controller(QObject):
         QTimer.singleShot(0, self._show_panel_now)
 
     def _show_panel_now(self) -> None:
+        # Repeated tray/IPC activations must leave an open panel alone: rebuilding
+        # it also changes the Wayland anchor to the latest point inside the icon.
+        if self.panel.isVisible():
+            return
         self.panel.update_views(self.views)
         self.panel.popup_at(self.tray.geometry())
 
