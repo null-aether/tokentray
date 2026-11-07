@@ -43,6 +43,8 @@ SHADOW_MARGIN = 40
 GAP = 10
 EDGE_MARGIN = 16
 MAX_VISIBLE = 3
+# How often an expired card re-checks a pointer that is still resting on it.
+HOVER_POLL_MS = 250
 
 
 class _Meter(QWidget):
@@ -80,6 +82,8 @@ class Toast(QWidget):
 
     closed = Signal(object)
     activated = Signal()
+    # A click on the transparent shadow margin, in global coordinates.
+    passthrough = Signal(QPoint)
 
     def __init__(
         self,
@@ -106,9 +110,12 @@ class Toast(QWidget):
             | Qt.WindowType.WindowStaysOnTopHint
             | Qt.WindowType.WindowDoesNotAcceptFocus
         )
-        if sys.platform == "win32":
-            # The card already draws its own shadow inside the transparent window.
-            self.setWindowFlag(Qt.WindowType.NoDropShadowWindowHint, True)
+        # The card already draws its own shadow inside the transparent window.
+        # Leaving the native one on means a second shadow, and on macOS it is
+        # drawn around the whole 40px margin rather than the card - then cached
+        # from the empty alpha mask this window is ordered in with, so it stays
+        # on screen as a hollow rectangle for as long as the card is up.
+        self.setWindowFlag(Qt.WindowType.NoDropShadowWindowHint, True)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         # Without this the toast steals focus from whatever the user is typing in.
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
@@ -122,8 +129,10 @@ class Toast(QWidget):
 
         self._dismiss = QTimer(self)
         self._dismiss.setSingleShot(True)
-        self._dismiss.timeout.connect(self.dismiss)
+        self._dismiss.timeout.connect(self._expire)
         self._duration_ms = max(2, duration) * 1000
+        self._held = False
+        self._closing = False
 
         self._fade = QPropertyAnimation(self, b"windowOpacity", self)
         self._slide = QPropertyAnimation(self, b"pos", self)
@@ -296,6 +305,14 @@ class Toast(QWidget):
         self._slide.start()
 
     def dismiss(self) -> None:
+        # A card can be asked to go twice - an action button dismisses, and the
+        # click that pressed it also reads as a card click. Without this the
+        # second ask restarted the fade from wherever it had reached and added
+        # another ``finished`` -> close connection, so a card asked twice took
+        # longer to leave than one asked once.
+        if self._closing:
+            return
+        self._closing = True
         self._dismiss.stop()
         self._fade.finished.connect(self.close)
         self._animate_opacity(0.0, 160)
@@ -317,17 +334,51 @@ class Toast(QWidget):
         # the card counted as leaving and restarted the countdown - the hover
         # never held. Only a pointer that is really off the card ends the wait.
         if not self._sticky and not self.hovered():
+            self._held = False
             self._dismiss.start(self._duration_ms)
         super().leaveEvent(event)
 
+    def _expire(self) -> None:
+        # macOS sends no Enter or Leave to the windows of an app that is not
+        # frontmost - and a card nearly always appears while another app is -
+        # so the countdown ran out under a resting cursor. Ask where the
+        # pointer is instead: hold while it is on the card, then give the full
+        # wait again once it leaves, as leaveEvent does.
+        if self.hovered():
+            self._held = True
+            self._dismiss.start(HOVER_POLL_MS)
+        elif self._held:
+            self._held = False
+            self._dismiss.start(self._duration_ms)
+        else:
+            self.dismiss()
+
     def hovered(self) -> bool:
         """Whether the pointer is over the visible card, children included."""
-        return self._card.geometry().contains(self.mapFromGlobal(QCursor.pos()))
+        return self.card_contains(QCursor.pos())
+
+    def card_contains(self, global_pos: QPoint) -> bool:
+        return self._card.geometry().contains(self.mapFromGlobal(global_pos))
+
+    def click_at(self, global_pos: QPoint) -> None:
+        """Act on a click another toast's margin caught over this card."""
+        target = self.childAt(self.mapFromGlobal(global_pos))
+        if isinstance(target, QPushButton):
+            target.click()
+        else:
+            self.activated.emit()
+            self.dismiss()
 
     def mouseReleaseEvent(self, event) -> None:  # noqa: N802 - Qt naming
         if event.button() == Qt.MouseButton.LeftButton:
-            self.activated.emit()
-            self.dismiss()
+            if self._card.geometry().contains(event.position().toPoint()):
+                self.activated.emit()
+                self.dismiss()
+            else:
+                # The shadow margin is transparent but still this window, and
+                # in a stack it lies over the neighbouring card - bottom-up,
+                # right over its x. Hand the click to whichever card is there.
+                self.passthrough.emit(event.globalPosition().toPoint())
         super().mouseReleaseEvent(event)
 
     def closeEvent(self, event) -> None:  # noqa: N802 - Qt naming
@@ -408,6 +459,7 @@ class ToastManager:
 
     def show(self, toast: Toast) -> None:
         toast.closed.connect(self._forget)
+        toast.passthrough.connect(self._route_click)
         if self.on_activated is not None:
             toast.activated.connect(self.on_activated)
         self._toasts.append(toast)
@@ -417,9 +469,18 @@ class ToastManager:
             slide_from=max(24, toast.width() // 6),
         )
 
-    def clear(self) -> None:
+    def clear(self, *, immediate: bool = False) -> None:
+        """Take every card off screen.
+
+        ``immediate`` skips the fade. Shutdown needs it: ``dismiss`` only starts
+        a 160 ms animation, and the event loop stops long before it can finish,
+        so the close it was going to trigger never arrived.
+        """
         for toast in list(self._toasts):
-            toast.dismiss()
+            if immediate:
+                toast.close()
+            else:
+                toast.dismiss()
 
     # -- placement -------------------------------------------------------------
 
@@ -431,8 +492,6 @@ class ToastManager:
         Windows and Linux put the tray at the bottom. An explicit setting wins,
         for a taskbar somebody has moved or a second monitor.
         """
-        import sys
-
         if self.position == "top-right":
             from_top = True
         elif self.position == "bottom-right":
@@ -465,6 +524,12 @@ class ToastManager:
         else:
             y = area.bottom() - toast.height() + SHADOW_MARGIN - EDGE_MARGIN - offset
         return QPoint(x, y)
+
+    def _route_click(self, global_pos: QPoint) -> None:
+        for toast in reversed(self._toasts):
+            if toast.card_contains(global_pos):
+                toast.click_at(global_pos)
+                return
 
     def _forget(self, toast: Toast) -> None:
         if toast in self._toasts:

@@ -20,7 +20,7 @@ import pytest
 
 pytest.importorskip("PySide6")
 
-from PySide6.QtCore import QThread  # noqa: E402
+from PySide6.QtCore import Qt, QThread  # noqa: E402
 
 from tokentray import autostart, ipc  # noqa: E402
 from tokentray.core import paths  # noqa: E402
@@ -89,6 +89,53 @@ class TestPollThreadNeverTouchesWidgets:
         finally:
             controller._thread.quit()
             controller._thread.wait(3000)
+
+
+class TestTranslucentWindowShadows:
+    """Neither window wants the shadow the platform would draw for it.
+
+    Both are frameless and translucent, with a 40px transparent margin they
+    paint their own shadow into. The native one is a second shadow, and on
+    macOS it is drawn around the whole margin instead of the card - then cached
+    from the empty alpha mask the window is ordered in with and never redrawn,
+    so it sat on screen as a hollow rectangle for as long as the card was up.
+    """
+
+    def test_the_card_refuses_the_native_shadow(self, qapp):
+        from tokentray.ui.popup import Toast
+
+        card = Toast(title="t", body="b", duration=8)
+        assert card.windowFlags() & Qt.WindowType.NoDropShadowWindowHint
+        card.deleteLater()
+
+    def test_the_panel_refuses_the_native_shadow(self, qapp):
+        from tokentray.ui.panel import DetailPanel
+
+        panel = DetailPanel(on_refresh=lambda: None)
+        assert panel.windowFlags() & Qt.WindowType.NoDropShadowWindowHint
+        panel.deleteLater()
+
+
+class TestPanelIsShownOffTheCallingLoop:
+    """macOS opens the panel from a native menu item.
+
+    The menu runs its own tracking session and the IPC handler sits inside
+    blocking waitFor* calls, so both reach ``show_panel`` from a loop that has
+    not finished. A Qt::Popup shown there is closed again before it composites,
+    which is why the first click on the menu item did nothing.
+    """
+
+    def test_the_panel_waits_for_the_calling_loop(self, qapp, isolated_config):
+        from tokentray import app as app_mod
+
+        controller = app_mod.Controller(qapp, Config({"poll_interval": 120}))
+        shown: list[object] = []
+        controller.panel.popup_at = shown.append
+
+        controller.show_panel()
+        assert shown == []
+        qapp.processEvents()
+        assert len(shown) == 1
 
 
 class TestWelcomeToast:

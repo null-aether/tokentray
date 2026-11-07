@@ -210,7 +210,7 @@ class Controller(QObject):
     def _shutdown(self) -> None:
         self.recovery.close()
         self._timer.stop()
-        self.toasts.clear()
+        self.toasts.clear(immediate=True)
         self.webhook.close()
         self.tray.stop()
         # Close the HTTP clients on the thread that created them, then join.
@@ -265,6 +265,18 @@ class Controller(QObject):
         self.tray.quit_requested.connect(self.quit)
 
     def show_panel(self) -> None:
+        # Every caller reaches this from inside a loop that has not finished:
+        # macOS runs the tray menu in its own native tracking session, and the
+        # IPC handler is mid-way through its blocking waitFor* calls. A
+        # Qt::Popup shown there is torn down again before it ever composites,
+        # which is why the first click on the menu item appeared to do nothing.
+        QTimer.singleShot(0, self._show_panel_now)
+
+    def _show_panel_now(self) -> None:
+        # Repeated tray/IPC activations must leave an open panel alone: rebuilding
+        # it also changes the Wayland anchor to the latest point inside the icon.
+        if self.panel.isVisible():
+            return
         self.panel.update_views(self.views)
         self.panel.popup_at(self.tray.geometry())
 

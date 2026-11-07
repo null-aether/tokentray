@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import queue
 import threading
@@ -14,9 +13,8 @@ from urllib.parse import urlparse
 import httpx
 
 from ..core.alerts import AlertEvent
-from ..core.compute import TIER_COLORS
 from ..core.secrets import WEBHOOK_URL, SecretStore, default_store
-from .formatting import provider_name
+from .cards import TEST_BODY, build_card, discord_payload, plain_text, slack_payload
 
 TIMEOUT = 5.0
 MAX_RETRY_AFTER = 30.0
@@ -115,7 +113,7 @@ class Webhook:
             kind="info",
             key="test",
             title="tokentray",
-            body="Webhook notifications are working.",
+            body=TEST_BODY,
             tier="green",
         )
         self._enqueue(event, callback)
@@ -197,20 +195,22 @@ class Webhook:
         self, client: httpx.Client, kind: str, url: str, event: AlertEvent
     ) -> httpx.Response:
         if kind == "ntfy":
-            return client.post(
-                url,
-                content=_message(event).encode("utf-8"),
-                headers={
-                    "Title": _ascii(event.title),
-                    "Priority": NTFY_PRIORITY.get(event.priority, "default"),
-                    "Tags": "warning",
-                },
-            )
+            # ntfy takes every option as a query parameter too. Headers cannot
+            # carry raw UTF-8, and escaping it there reached phones as literal
+            # "\uc54c..." text; a URL-encoded query arrives as written. Merged
+            # into the URL because httpx's params= drops a query already there,
+            # such as a self-hosted server's ?auth=.
+            target = httpx.URL(url).copy_merge_params({
+                "title": event.title,
+                "priority": NTFY_PRIORITY.get(event.priority, "default"),
+                "tags": "warning",
+            })
+            return client.post(target, content=plain_text(event).encode("utf-8"))
         if kind == "slack":
-            return client.post(url, json=_slack_payload(event))
+            return client.post(url, json=slack_payload(build_card(event)))
         if kind == "discord":
-            return client.post(url, params={"wait": "true"}, json=_discord_payload(event))
-        return client.post(url, json={"text": f"{event.title}: {_message(event)}"})
+            return client.post(url, params={"wait": "true"}, json=discord_payload(build_card(event)))
+        return client.post(url, json={"text": f"{event.title}: {plain_text(event)}"})
 
 
 def validate_destination(kind: str, url: str) -> str:
@@ -251,38 +251,6 @@ def destination_hint(kind: str) -> str:
     return DESTINATION_HINTS.get(kind, "")
 
 
-def _message(event: AlertEvent) -> str:
-    detail = event.detail
-    if not detail and event.row is not None:
-        detail = " · ".join(part for part in (event.row.refills, event.row.pace) if part)
-    return f"{event.body}\n{detail}" if detail else event.body
-
-
-def _slack_payload(event: AlertEvent) -> dict[str, Any]:
-    message = _message(event)
-    return {
-        "text": f"{event.title}: {message}",
-        "blocks": [
-            {"type": "header", "text": {"type": "plain_text", "text": event.title[:150]}},
-            {"type": "section", "text": {"type": "mrkdwn", "text": message[:3000]}},
-        ],
-    }
-
-
-def _discord_payload(event: AlertEvent) -> dict[str, Any]:
-    color = int(TIER_COLORS.get(event.tier, TIER_COLORS["green"]).lstrip("#"), 16)
-    payload: dict[str, Any] = {
-        "username": "tokentray",
-        "allowed_mentions": {"parse": []},
-        "embeds": [
-            {"title": event.title[:256], "description": _message(event)[:4096], "color": color}
-        ],
-    }
-    if event.provider:
-        payload["embeds"][0]["footer"] = {"text": provider_name(event.provider)}
-    return payload
-
-
 def _retry_after(response: httpx.Response) -> float:
     raw: Any = response.headers.get("Retry-After")
     if raw is None:
@@ -294,12 +262,3 @@ def _retry_after(response: httpx.Response) -> float:
         return max(0.0, min(float(raw), MAX_RETRY_AFTER))
     except (TypeError, ValueError):
         return 0.0
-
-
-def _ascii(text: str) -> str:
-    """ntfy sends the title in an HTTP header, which cannot carry raw UTF-8."""
-    try:
-        text.encode("latin-1")
-        return text
-    except UnicodeEncodeError:
-        return json.dumps(text, ensure_ascii=True)[1:-1]

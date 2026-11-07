@@ -1,5 +1,28 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+- Slack messages use the same card as Discord: a translated title, the
+  service, the window with a 🟢🟠🔴 status line, and refill time and pace as
+  fields. The connection test is translated too, instead of always English.
+  Mentions and markup in a message are escaped rather than acted on.
+
+### Fixed
+- ntfy titles in Korean, or with the `·` separator, arrived as literal
+  `알…` escapes. The title, priority and tags now travel as query
+  parameters, which carry UTF-8, and a query already in the topic URL is kept.
+- On macOS a card still vanished under a resting cursor while another app was
+  frontmost, because macOS sends no hover events to an inactive app. The card
+  now checks the pointer itself when its time runs out.
+- With cards stacked from the bottom, pressing the lower card's × closed the
+  card above it and opened the panel: the upper card's transparent shadow
+  margin lay over the button. A click on a margin now goes to the card
+  underneath, and a click on bare margin does nothing.
+- In the integration settings, a URL typed for one service stayed in the field
+  after switching back to the saved service, and saving stored it there - a
+  Slack URL as the ntfy destination. Changing the service now always clears it.
+
 ## 0.1.1 - 2026-09-15
 
 ### Fixed

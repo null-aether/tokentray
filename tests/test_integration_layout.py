@@ -71,6 +71,13 @@ def test_all_services_fit_scrolling_body(qapp, tmp_path, monkeypatch, language, 
             assert bottom <= d.scroll.viewport().height()
             assert d.test_button.geometry().bottom() < d.height()
             assert d.test_button.y() >= d.scroll.geometry().bottom()
+            assert d.usage_button.y() == d.test_button.y()
+            assert d.test_button.geometry().right() < d.usage_button.x()
+            assert d.usage_button.geometry().right() < d.width()
+            assert d.buttons.y() > d.usage_button.geometry().bottom()
+            assert d.buttons.geometry().bottom() < d.height()
+            for button in (d.test_button, d.usage_button):
+                assert button.fontMetrics().horizontalAdvance(button.text()) + 24 <= button.width()
     d.close()
 
 
@@ -195,3 +202,19 @@ def test_widgets_inherit_hinting(qapp, tmp_path):
             label.ensurePolished()
             assert label.font().hintingPreference() == expected
         widget.close()
+
+
+def test_returning_to_the_saved_service_drops_the_typed_url(qapp, tmp_path, monkeypatch):
+    """A Slack URL typed and then abandoned for the saved ntfy was saved as ntfy's."""
+    store = SecretStore(tmp_path / "secrets.toml")
+    monkeypatch.setattr(store, "_keyring", lambda: None)
+    config = Config(
+        {"webhook": {"enabled": True, "kind": "ntfy", "configured": True}}, tmp_path / "config.toml"
+    )
+    d = IntegrationDialog(config, on_saved=lambda _: None, store=store)
+    d.kind.setCurrentIndex(d.kind.findData("slack"))
+    d.url.setText("https://hooks.slack.com/services/T/B/test")
+    d.kind.setCurrentIndex(d.kind.findData("ntfy"))
+    assert d.url.text() == ""
+    assert d.url.placeholderText() == i18n.t("integration.saved_url")
+    d.close()

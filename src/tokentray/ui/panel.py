@@ -1,16 +1,15 @@
 """The detail card shown when the tray icon is clicked.
 
-A ``Qt.Popup`` window, so clicking anywhere else dismisses it — the behaviour
-people already expect from a tray flyout, and it saves having to manage focus.
+Native Wayland needs a managed tool window: a tray activation has no parent
+surface or input serial for a grabbing popup. Other platforms use ``Qt.Popup``.
 """
 
 from __future__ import annotations
 
-import sys
 from typing import Callable
 
-from PySide6.QtCore import QPoint, QRect, Qt
-from PySide6.QtGui import QFontMetrics, QGuiApplication
+from PySide6.QtCore import QEvent, QPoint, QRect, QSize, Qt
+from PySide6.QtGui import QCursor, QFontMetrics, QGuiApplication
 from PySide6.QtWidgets import (
     QFrame,
     QGraphicsDropShadowEffect,
@@ -48,10 +47,11 @@ class DetailPanel(QWidget):
         self.refresh_feedback.changed.connect(self._update_refresh_button)
         self._views: list[ProviderView] = []
         self.recovery = None
-        self.setWindowFlags(Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint)
-        if sys.platform == "win32":
-            # Keep the card shadow, not a second shadow around its transparent margins.
-            self.setWindowFlag(Qt.WindowType.NoDropShadowWindowHint, True)
+        self._managed_panel = QGuiApplication.platformName().startswith("wayland")
+        window_type = Qt.WindowType.Tool if self._managed_panel else Qt.WindowType.Popup
+        self.setWindowFlags(window_type | Qt.WindowType.FramelessWindowHint)
+        # Keep the card shadow, not a second shadow around its transparent margins.
+        self.setWindowFlag(Qt.WindowType.NoDropShadowWindowHint, True)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self._anchor: QRect | None = None
         self.loading_overlay = LoadingOverlay(self)
@@ -64,30 +64,53 @@ class DetailPanel(QWidget):
 
     def popup_at(self, anchor: QRect | None) -> None:
         """Show near the tray icon, kept inside the screen it belongs to."""
+        anchor = _anchor_or_pointer(anchor)
+        # Remember what was used, not what was asked for: a refresh re-shows
+        # through here, and it must not chase a pointer that has moved on.
         self._anchor = anchor
-        screen = None
-        if anchor is not None and not anchor.isNull():
-            screen = QGuiApplication.screenAt(anchor.center())
-        screen = screen or QGuiApplication.primaryScreen()
+        screen = QGuiApplication.screenAt(anchor.center()) or QGuiApplication.primaryScreen()
         area = screen.availableGeometry() if screen else QRect(0, 0, 1280, 800)
         self._rebuild()
         self._fit_to_area(area)
+        self._position_at_anchor(screen, area)
+        self.show()
+        self.raise_()
+        # Tray-menu and IPC activations may arrive while the app is inactive.
+        # Take focus for keyboard dismissal and the managed Wayland flyout's
+        # activation-based lifetime, as well as for the native popup platforms.
+        self.activateWindow()
+        self._update_overlay()
 
-        if anchor is not None and not anchor.isNull():
-            x = anchor.center().x() - self.width() // 2
-            below = anchor.bottom() + 4
-            # Put it above the icon when the tray sits at the bottom of the screen.
-            y = below if below + self.height() < area.bottom() else anchor.top() - self.height() - 4
-        else:
-            x = area.right() - self.width()
-            y = area.bottom() - self.height()
+    def _position_at_anchor(self, screen, area: QRect) -> None:
+        anchor = self._anchor
+        x = anchor.center().x() - self.width() // 2
+        below = anchor.bottom() + 4
+        # Put it above the icon when the tray sits at the bottom of the screen.
+        y = below if below + self.height() < area.bottom() else anchor.top() - self.height() - 4
 
         x = max(area.left(), min(x, area.right() - self.width()))
         y = max(area.top(), min(y, area.bottom() - self.height()))
         self.move(QPoint(x, y))
-        self.show()
-        self.raise_()
-        self._update_overlay()
+        if self._managed_panel:
+            from .wayland import place_panel
+
+            place_panel(self, screen, anchor.center())
+
+    def changeEvent(self, event) -> None:
+        # Tool windows have no popup grab to dismiss them on an outside click.
+        # A child losing focus (e.g. while rebuilding the content) is not enough;
+        # dismiss only when the entire window loses activation.
+        if (self._managed_panel and event.type() == QEvent.Type.ActivationChange
+                and not self.isActiveWindow()):
+            self.hide()
+        super().changeEvent(event)
+
+    def keyPressEvent(self, event) -> None:
+        if event.key() == Qt.Key.Key_Escape:
+            self.hide()
+            event.accept()
+            return
+        super().keyPressEvent(event)
 
     # -- rendering -------------------------------------------------------------
 
@@ -310,7 +333,10 @@ class DetailPanel(QWidget):
             if screen:
                 self._fit_to_area(screen.availableGeometry())
                 area = screen.availableGeometry()
-                self.move(self.x(), max(area.top(), min(self.y(), area.bottom() - self.height())))
+                if self._managed_panel and self._anchor is not None:
+                    self._position_at_anchor(screen, area)
+                else:
+                    self.move(self.x(), max(area.top(), min(self.y(), area.bottom() - self.height())))
 
     def _update_overlay(self) -> None:
         self.loading_overlay.setGeometry(self.rect().adjusted(
@@ -334,6 +360,20 @@ def _separator(parent: QWidget, palette) -> QFrame:
     line.setFixedHeight(1)
     line.setStyleSheet(f"background-color: {_rgba(palette.border)}; border: none;")
     return line
+
+
+def _anchor_or_pointer(anchor: QRect | None) -> QRect:
+    """The rect to hang the panel under.
+
+    ``None`` means nothing would say where the tray icon is: most Wayland
+    compositors refuse, and on macOS a menu bar manager that hides the item
+    leaves ``QSystemTrayIcon.geometry()`` empty. The pointer is the better
+    answer than a screen corner - the click that asked for the panel has only
+    just happened, so the cursor is still on the menu bar.
+    """
+    if anchor is not None and not anchor.isNull() and not anchor.isEmpty():
+        return anchor
+    return QRect(QCursor.pos(), QSize(1, 1))
 
 
 def _clear_layout(layout) -> None:

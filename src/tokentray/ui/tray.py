@@ -58,7 +58,10 @@ class Tray(QObject):
 
     def __init__(self) -> None:
         super().__init__()
-        self._icon = QSystemTrayIcon()
+        from .wayland import NativeTrayIcon, native_bridge
+
+        bridge = native_bridge()
+        self._icon = NativeTrayIcon(bridge, self) if bridge is not None else QSystemTrayIcon()
         self._icon.setIcon(icons.build_icon())
         self._icon.setToolTip(APP_NAME)
         self._views: list[ProviderView] = []
@@ -92,7 +95,12 @@ class Tray(QObject):
         QTimer.singleShot(RETRY_INTERVAL_MS, self.start)
 
     def stop(self) -> None:
-        self._icon.hide()
+        from .wayland import NativeTrayIcon
+
+        if isinstance(self._icon, NativeTrayIcon):
+            self._icon.close()
+        else:
+            self._icon.hide()
 
     @property
     def available(self) -> bool:
