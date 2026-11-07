@@ -289,6 +289,9 @@ the webhook avatar in the channel settings.
   Set it with `tokentray config set linux.force_xwayland false`, then restart
   tokentray. The native Wayland detail panel opens without a parent window and
   hides when another window takes focus or you press Escape.
+  For placement next to the tray in native Wayland, build the optional
+  [Wayland integration](native/wayland/README.md). It uses LayerShellQt and
+  KStatusNotifierItem, with no compositor scripts or window rules.
 - Without a keyring service such as SecretService, secrets fall back to an
   owner-only local file, and setup tells you so.
 

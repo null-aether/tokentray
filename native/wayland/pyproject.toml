@@ -1,0 +1,17 @@
+[build-system]
+requires = ["scikit-build-core>=0.11"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "tokentray-wayland"
+version = "0.1.0"
+description = "Optional native Wayland integration for TokenTray"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
+dependencies = ["pyside6>=6.11"]
+
+[tool.scikit-build]
+wheel.packages = ["tokentray_wayland"]
+wheel.py-api = "py3"

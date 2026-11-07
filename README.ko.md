@@ -280,6 +280,9 @@ Slack은 앱 아이콘에 `packaging/resources/tokentray-512.png`를 쓰면 되�
   Set it with `tokentray config set linux.force_xwayland false`, then restart
   tokentray. The native Wayland detail panel opens without a parent window and
   hides when another window takes focus or you press Escape.
+  For placement next to the tray in native Wayland, build the optional
+  [Wayland integration](native/wayland/README.md). It uses LayerShellQt and
+  KStatusNotifierItem, with no compositor scripts or window rules.
 - SecretService 같은 키링 서비스가 없으면 시크릿을 소유자 전용 로컬 파일에 저장하고,
   셋업에서 이를 안내합니다.
 

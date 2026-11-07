@@ -72,7 +72,17 @@ class DetailPanel(QWidget):
         area = screen.availableGeometry() if screen else QRect(0, 0, 1280, 800)
         self._rebuild()
         self._fit_to_area(area)
+        self._position_at_anchor(screen, area)
+        self.show()
+        self.raise_()
+        # Tray-menu and IPC activations may arrive while the app is inactive.
+        # Take focus for keyboard dismissal and the managed Wayland flyout's
+        # activation-based lifetime, as well as for the native popup platforms.
+        self.activateWindow()
+        self._update_overlay()
 
+    def _position_at_anchor(self, screen, area: QRect) -> None:
+        anchor = self._anchor
         x = anchor.center().x() - self.width() // 2
         below = anchor.bottom() + 4
         # Put it above the icon when the tray sits at the bottom of the screen.
@@ -81,13 +91,10 @@ class DetailPanel(QWidget):
         x = max(area.left(), min(x, area.right() - self.width()))
         y = max(area.top(), min(y, area.bottom() - self.height()))
         self.move(QPoint(x, y))
-        self.show()
-        self.raise_()
-        # Tray-menu and IPC activations may arrive while the app is inactive.
-        # Take focus for keyboard dismissal and the managed Wayland flyout's
-        # activation-based lifetime, as well as for the native popup platforms.
-        self.activateWindow()
-        self._update_overlay()
+        if self._managed_panel:
+            from .wayland import place_panel
+
+            place_panel(self, screen, QPoint(x, y))
 
     def changeEvent(self, event) -> None:
         # Tool windows have no popup grab to dismiss them on an outside click.
@@ -326,7 +333,10 @@ class DetailPanel(QWidget):
             if screen:
                 self._fit_to_area(screen.availableGeometry())
                 area = screen.availableGeometry()
-                self.move(self.x(), max(area.top(), min(self.y(), area.bottom() - self.height())))
+                if self._managed_panel and self._anchor is not None:
+                    self._position_at_anchor(screen, area)
+                else:
+                    self.move(self.x(), max(area.top(), min(self.y(), area.bottom() - self.height())))
 
     def _update_overlay(self) -> None:
         self.loading_overlay.setGeometry(self.rect().adjusted(
