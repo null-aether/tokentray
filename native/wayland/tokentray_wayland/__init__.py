@@ -12,7 +12,7 @@ def pointer(value):
 
 
 class Bridge:
-    API_VERSION = 2
+    API_VERSION = 3
 
     def __init__(self):
         self.library = ctypes.CDLL(str(Path(__file__).with_name("libtokentray_wayland.so")))
@@ -35,6 +35,7 @@ class Bridge:
             "tray_message": (None, [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_char_p, ctypes.c_int]),
             "tray_token": (ctypes.c_char_p, [ctypes.c_void_p]),
             "layer_anchor": (None, [ctypes.c_void_p, ctypes.c_void_p] + [ctypes.c_int] * 5),
+            "layer_notification": (None, [ctypes.c_void_p, ctypes.c_void_p] + [ctypes.c_int] * 5),
         }
         for name, (result, arguments) in signatures.items():
             function = getattr(self.library, "tokentray_" + name)

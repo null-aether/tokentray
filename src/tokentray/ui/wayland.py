@@ -18,6 +18,16 @@ from PySide6.QtWidgets import QApplication, QStyle, QSystemTrayIcon
 log = logging.getLogger("tokentray.wayland")
 
 
+def is_native_wayland() -> bool:
+    app = QGuiApplication.instance()
+    return isinstance(app, QGuiApplication) and app.platformName().startswith("wayland")
+
+
+def can_position_notifications() -> bool:
+    bridge = native_bridge()
+    return bridge is not None and getattr(bridge, "API_VERSION", 0) >= 3
+
+
 @lru_cache(maxsize=1)
 def native_bridge():
     if not QGuiApplication.platformName().startswith("wayland"):
@@ -162,4 +172,29 @@ def place_panel(panel, screen, anchor: QPoint) -> bool:
         SHADOW_MARGIN, SHADOW_MARGIN, -SHADOW_MARGIN, -SHADOW_MARGIN)))
     placement = layer_placement(screen.geometry(), anchor, panel.size(), SHADOW_MARGIN)
     bridge.layer_anchor(pointer(panel.windowHandle()), pointer(screen), *placement)
+    return True
+
+
+def place_notification(toast, area: QRect, *, from_top: bool, offset: int) -> bool:
+    bridge = native_bridge()
+    if bridge is None or getattr(bridge, "API_VERSION", 0) < 3:
+        return False
+    screen = QGuiApplication.screenAt(area.center()) or QGuiApplication.primaryScreen()
+    if screen is None:
+        return False
+    from tokentray_wayland import pointer
+
+    from .popup import EDGE_MARGIN, SHADOW_MARGIN
+
+    toast.winId()
+    handle = toast.windowHandle()
+    handle.setMask(QRegion(toast.rect().adjusted(
+        SHADOW_MARGIN, SHADOW_MARGIN, -SHADOW_MARGIN, -SHADOW_MARGIN)))
+    inset = EDGE_MARGIN - SHADOW_MARGIN
+    placement = ((9, 0, inset + offset, inset, 0) if from_top
+                 else (10, 0, 0, inset, inset + offset))
+    bridge.layer_notification(pointer(handle), pointer(screen), *placement)
+    # Margin changes are double-buffered Wayland state. A visible, otherwise
+    # static widget needs a paint/commit for a restacked card to move.
+    toast.update()
     return True

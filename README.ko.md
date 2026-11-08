@@ -276,8 +276,8 @@ Slack은 앱 아이콘에 `packaging/resources/tokentray-512.png`를 쓰면 되�
 
 - GNOME은 트레이 아이콘 표시에 AppIndicator 확장이 필요하고, KDE는 기본으로 지원합니다.
 - Wayland에서는 알림 카드가 트레이 옆에 뜨도록 XWayland를 거쳐 실행합니다.
-  `linux.force_xwayland = false`로 바꾸면 네이티브로 실행하지만 카드 위치는 컴포지터가
-  정합니다.
+  Native Wayland (`linux.force_xwayland = false`) sends ordinary alerts through
+  the desktop notification service, without a duplicate custom card.
   Set it with `tokentray config set linux.force_xwayland false`, then restart
   tokentray. The native Wayland detail panel opens without a parent window and
   hides when another window takes focus or you press Escape.
@@ -288,6 +288,12 @@ Slack은 앱 아이콘에 `packaging/resources/tokentray-512.png`를 쓰면 되�
   contents and position unchanged.
   The native integration keeps a small visible gap outside the desktop panel;
   nearby clicks inside the tray icon reuse the same anchor when reopening.
+  Integration version 0.3.0+ also positions action cards and custom notification
+  fallbacks in the configured screen corner, without taking keyboard focus.
+  Without that capability, native Wayland uses system notifications only;
+  disabling native notifications then leaves no local alert channel. Alerts
+  never open the detail panel automatically. OS banner placement is controlled
+  by the desktop.
 - SecretService 같은 키링 서비스가 없으면 시크릿을 소유자 전용 로컬 파일에 저장하고,
   셋업에서 이를 안내합니다.
 

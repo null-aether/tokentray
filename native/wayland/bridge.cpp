@@ -22,7 +22,7 @@ void registryRemoved(void *, wl_registry *, uint32_t) {}
 extern "C" {
 int tokentray_bridge_api()
 {
-    return 2;
+    return 3;
 }
 
 bool tokentray_layer_supported()
@@ -100,5 +100,19 @@ void tokentray_layer_anchor(QWindow *window, QScreen *screen, int anchors,
     layer->setExclusiveZone(0);
     layer->setLayer(LayerShellQt::Window::LayerTop);
     layer->setKeyboardInteractivity(LayerShellQt::Window::KeyboardInteractivityOnDemand);
+}
+
+void tokentray_layer_notification(QWindow *window, QScreen *screen, int anchors,
+                                 int left, int top, int right, int bottom)
+{
+    auto *layer = LayerShellQt::Window::get(window);
+    layer->setScope(QStringLiteral("tokentray-notification"));
+    layer->setScreen(screen);
+    layer->setAnchors(LayerShellQt::Window::Anchors::fromInt(anchors));
+    layer->setMargins(QMargins(left, top, right, bottom));
+    layer->setExclusiveZone(0);
+    layer->setLayer(LayerShellQt::Window::LayerTop);
+    layer->setKeyboardInteractivity(LayerShellQt::Window::KeyboardInteractivityNone);
+    layer->setActivateOnShow(false);
 }
 }

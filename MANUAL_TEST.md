@@ -40,7 +40,7 @@ Korean text fits its box.
 | # | Check | W | M | L |
 |---|---|---|---|---|
 | 8 | "Test notification" disables the menu while fetching fresh usage, then shows Claude Code and Codex cards with a labelled meter per limit matching the updated panel. Repeated requests produce one preview; failures have no meters and cached values are marked as previous data. Automatic alert history and webhooks are unaffected. | ☐ | ☐ | ☐ |
-| 8a | Windows defaults to custom cards with no OS banner. Explicitly enabling native notifications instead sends one text summary banner. Linux/macOS keep the custom card plus the optional system notification. On macOS an ad-hoc signed `.app` does deliver the banner; running outside a bundle does not, so check **Open log** for the attempt. | ☐ | ☐ | ☐ |
+| 8a | Windows defaults to custom cards with no OS banner. Explicitly enabling native notifications instead sends one text summary banner. Native Wayland prefers one OS banner; X11/macOS keep the custom card plus the optional system notification. On macOS an ad-hoc signed `.app` does deliver the banner; running outside a bundle does not, so check **Open log** for the attempt. | ☐ | ☐ | ☐ |
 | 9 | The toast does **not** steal focus - keep typing in an editor while it appears and confirm no keystrokes are lost. | ☐ | ☐ | ☐ |
 | 10 | It fades out on its own after ~8 s, and hovering it stops that countdown. | ☐ | ☐ | ☐ |
 | 11 | Clicking the toast opens the detail panel. | ☐ | ☐ | ☐ |
@@ -118,7 +118,7 @@ successful test message does not by itself verify threshold or reset reminders.
 | # | Check | |
 |---|---|---|
 | 28 | Under a Wayland session, confirm the app runs through XWayland by default and the toast is positioned in the corner. | ☐ |
-| 29 | Set `linux.force_xwayland = false`, restart under Wayland, and confirm the app runs natively (no XWayland), alert cards still appear (placement is up to the compositor), and with `native_notifications` on the OS notification is delivered too. | ☐ |
+| 29 | Set `linux.force_xwayland = false`, restart under Wayland, and confirm ordinary alerts produce only one OS notification. With integration 0.3.0+, disable native notifications and check custom cards at both configured corners, expiry, hover, close/actions and stack compaction without stealing focus. Login cards use only the custom channel. Without integration 0.3.0+, custom cards must never appear centered; native notifications still work. Restore native notifications afterward. No alert should open the detail panel. | ☐ |
 | 30 | With no SecretService running (`env -u DBUS_SESSION_BUS_ADDRESS`), `tokentray setup` falls back to the owner-only file and says so. | ☐ |
 | 31 | Works on both GNOME (with the AppIndicator extension) and KDE. | ☐ |
 

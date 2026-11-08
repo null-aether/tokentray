@@ -284,9 +284,9 @@ the webhook avatar in the channel settings.
 
 - GNOME needs the AppIndicator extension to show a tray icon; KDE works out of
   the box.
-- On Wayland, tokentray runs through XWayland so alert cards can sit next to the
-  tray. With `linux.force_xwayland = false` it runs natively, but the compositor
-  decides where cards appear.
+- On Wayland, tokentray runs through XWayland by default for alert-card placement.
+  With `linux.force_xwayland = false` it runs natively and sends ordinary alerts
+  through the desktop notification service, without a duplicate custom card.
   Set it with `tokentray config set linux.force_xwayland false`, then restart
   tokentray. The native Wayland detail panel opens without a parent window and
   hides when another window takes focus or you press Escape.
@@ -297,6 +297,12 @@ the webhook avatar in the channel settings.
   contents and position unchanged.
   The native integration keeps a small visible gap outside the desktop panel;
   nearby clicks inside the tray icon reuse the same anchor when reopening.
+  Integration version 0.3.0+ also positions action cards and custom notification
+  fallbacks in the configured screen corner, without taking keyboard focus.
+  Without that capability, native Wayland uses system notifications only;
+  disabling native notifications then leaves no local alert channel. Alerts
+  never open the detail panel automatically. OS banner placement is controlled
+  by the desktop.
 - Without a keyring service such as SecretService, secrets fall back to an
   owner-only local file, and setup tells you so.
 

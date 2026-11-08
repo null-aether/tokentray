@@ -279,6 +279,7 @@ class Controller(QObject):
             return
         self.panel.update_views(self.views)
         self.panel.popup_at(self.tray.geometry())
+        log.info("detail_panel_shown")
 
     def show_test_alert(self) -> None:
         if self._test_pending:
@@ -416,18 +417,24 @@ class Controller(QObject):
         self._save_state()
 
     def _on_tray_unavailable(self) -> None:
-        log.warning("no system tray host available; running with popups only")
+        log.warning("no system tray host available")
         from .ui.popup import Toast
 
-        self.toasts.show(
-            Toast(
-                title=i18n.t("notify.info_title"),
-                body=i18n.t("welcome.title"),
-                detail=i18n.t("welcome.body"),
-                tier="orange",
-                sticky=True,
-                actions=[(i18n.t("welcome.ack"), lambda: None)],
+        def show_custom() -> None:
+            self.toasts.show(
+                Toast(
+                    title=i18n.t("notify.info_title"),
+                    body=i18n.t("welcome.title"),
+                    detail=i18n.t("welcome.body"),
+                    tier="orange",
+                    sticky=True,
+                    actions=[(i18n.t("welcome.ack"), lambda: None)],
+                )
             )
+
+        self.dispatcher.present(
+            i18n.t("notify.info_title"), i18n.t("welcome.title"),
+            show_custom, force_custom=True,
         )
 
     # -- IPC -------------------------------------------------------------------

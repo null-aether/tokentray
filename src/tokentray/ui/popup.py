@@ -6,6 +6,7 @@ controlled by ``notify.dispatcher``.
 
 from __future__ import annotations
 
+import logging
 import sys
 from typing import Callable
 
@@ -45,6 +46,7 @@ EDGE_MARGIN = 16
 MAX_VISIBLE = 3
 # How often an expired card re-checks a pointer that is still resting on it.
 HOVER_POLL_MS = 250
+log = logging.getLogger("tokentray.popup")
 
 
 class _Meter(QWidget):
@@ -133,6 +135,7 @@ class Toast(QWidget):
         self._duration_ms = max(2, duration) * 1000
         self._held = False
         self._closing = False
+        self._wayland_positioned = False
 
         self._fade = QPropertyAnimation(self, b"windowOpacity", self)
         self._slide = QPropertyAnimation(self, b"pos", self)
@@ -280,6 +283,13 @@ class Toast(QWidget):
 
     def present(self, target: QPoint, *, slide_from: int) -> None:
         """Fade and slide into ``target``. ``slide_from`` is a signed x offset."""
+        if self._wayland_positioned:
+            # Position and opacity animations on an xdg_toplevel are unsupported
+            # in Wayland. The layer surface already has its compositor anchor.
+            self.show()
+            if not self._sticky:
+                self._dismiss.start(self._duration_ms)
+            return
         self.setWindowOpacity(0.0)
         self.move(target + QPoint(slide_from, 0))
         self.show()
@@ -297,6 +307,8 @@ class Toast(QWidget):
 
     def glide_to(self, target: QPoint) -> None:
         """Move to a new slot after a toast below this one was dismissed."""
+        if self._wayland_positioned:
+            return
         self._slide.stop()
         self._slide.setDuration(160)
         self._slide.setStartValue(self.pos())
@@ -314,6 +326,9 @@ class Toast(QWidget):
             return
         self._closing = True
         self._dismiss.stop()
+        if self._wayland_positioned:
+            self.close()
+            return
         self._fade.finished.connect(self.close)
         self._animate_opacity(0.0, 160)
 
@@ -355,6 +370,10 @@ class Toast(QWidget):
 
     def hovered(self) -> bool:
         """Whether the pointer is over the visible card, children included."""
+        if self._wayland_positioned:
+            # Wayland sends local enter/leave events but provides no reliable
+            # global cursor position once the pointer leaves our surface.
+            return self.underMouse() or any(child.underMouse() for child in self.findChildren(QWidget))
         return self.card_contains(QCursor.pos())
 
     def card_contains(self, global_pos: QPoint) -> bool:
@@ -464,10 +483,12 @@ class ToastManager:
             toast.activated.connect(self.on_activated)
         self._toasts.append(toast)
         area, from_top = self._area()
+        self._place_wayland(toast, len(self._toasts) - 1, area, from_top)
         toast.present(
             self._slot(len(self._toasts) - 1, toast, area, from_top),
             slide_from=max(24, toast.width() // 6),
         )
+        log.info("custom_notification_presented wayland_positioned=%s", toast._wayland_positioned)
 
     def clear(self, *, immediate: bool = False) -> None:
         """Take every card off screen.
@@ -483,6 +504,12 @@ class ToastManager:
                 toast.dismiss()
 
     # -- placement -------------------------------------------------------------
+
+    def _place_wayland(self, toast: Toast, index: int, area: QRect, from_top: bool) -> None:
+        from .wayland import place_notification
+
+        offset = sum(t.height() - SHADOW_MARGIN * 2 + GAP for t in self._toasts[:index])
+        toast._wayland_positioned = place_notification(toast, area, from_top=from_top, offset=offset)
 
     def _area(self) -> tuple[QRect, bool]:
         """Available screen rect, and whether to stack downward from the top.
@@ -536,6 +563,7 @@ class ToastManager:
             self._toasts.remove(toast)
         area, from_top = self._area()
         for index, remaining in enumerate(self._toasts):
+            self._place_wayland(remaining, index, area, from_top)
             remaining.glide_to(self._slot(index, remaining, area, from_top))
 
 

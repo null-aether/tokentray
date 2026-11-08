@@ -9,6 +9,10 @@
   Mentions and markup in a message are escaped rather than acted on.
 
 ### Fixed
+- Native Wayland alerts no longer duplicate desktop notifications with a custom
+  card that the compositor centers. With the optional integration 0.3.0+, action
+  cards and custom fallbacks use nonactivating layer-shell corner anchors,
+  including stack compaction. Without it, only the native channel is used.
 - Expired Claude access tokens no longer require repeated browser logins when
   the installed CLI can renew them. Renewal delegates to `claude auth status`,
   validates the saved result, and never exchanges or writes tokens itself.
