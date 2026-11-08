@@ -201,6 +201,7 @@ diagnostics omit tokens, raw headers, and response bodies.
 | `language` | from locale | `en` or `ko` |
 | `webhook.enabled` / `webhook.kind` | `false` / `ntfy` | External alerts via `slack`, `discord`, `ntfy` or `generic` |
 | `codex.refresh` | `false` | Let tokentray refresh the Codex token |
+| `claude.renew_via_cli` | `true` | Ask the installed Claude Code CLI to renew an expired access token |
 | `linux.force_xwayland` | `true` | See Platform notes |
 
 Choose **Notification integrations…** in the tray menu to set up one webhook,
@@ -316,9 +317,19 @@ tokentray reads the credentials Claude Code and Codex already saved:
 - **Log in** in the panel or an alert opens a terminal running the login command
   and watches for new credentials for up to five minutes. If no terminal can be
   opened, copy the command shown.
-- Claude token refresh is left to Claude Code. Codex refresh is opt-in
-  (`codex.refresh`) and re-reads `auth.json` before writing, so it never
-  overwrites the Codex CLI.
+- With `claude.renew_via_cli` enabled, an expired, renewable Claude login triggers
+  `claude auth status --json`, then TokenTray re-reads the saved credentials.
+  Claude Code owns the refresh and file writes; this starts no model conversation
+  and discards CLI output. A valid access token never starts the command. Temporary
+  failures keep the last usage reading marked stale and retry after 5, 10, 20, 40,
+  then 60 minutes (or the polling interval, if longer); refresh clicks cannot
+  bypass that wait. If the CLI reports a lost login, attempts stop until the
+  saved credentials change. Set `claude.renew_via_cli` to `false` to disable it.
+  Older CLI versions may not renew from `auth status`; success is accepted only
+  after the saved access token is no longer expired. Local `doctor`/setup checks
+  remain read-only. macOS keychain renewal is attempted only on an explicit refresh
+  to avoid background authorization prompts.
+- Codex refresh is opt-in (`codex.refresh`) and re-reads `auth.json` before writing.
 - A token pasted during `setup` is stored in the OS keyring. A pasted Claude token
   cannot be renewed when it expires.
 - `doctor` reporting `no token in file` does not always mean you are logged out:

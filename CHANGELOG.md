@@ -9,6 +9,11 @@
   Mentions and markup in a message are escaped rather than acted on.
 
 ### Fixed
+- Expired Claude access tokens no longer require repeated browser logins when
+  the installed CLI can renew them. Renewal delegates to `claude auth status`,
+  validates the saved result, and never exchanges or writes tokens itself.
+  Temporary renewal failures preserve stale usage and back off; a lost login
+  stops automatic renewal until credentials change.
 - ntfy titles in Korean, or with the `·` separator, arrived as literal
   `알…` escapes. The title, priority and tags now travel as query
   parameters, which carry UTF-8, and a query already in the topic URL is kept.

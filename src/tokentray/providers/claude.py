@@ -1,14 +1,15 @@
 """Claude Code quota provider.
 
-Reads the OAuth token that Claude Code itself maintains. tokentray never
-refreshes that token: Claude Code owns it, refreshes it on its own schedule, and
-two writers racing over one credential file is how people get logged out. When
-it expires we say so and point the user at ``claude``.
+Reads the OAuth token that Claude Code itself maintains. When it expires,
+delegate renewal to ``claude auth status --json`` and re-read the result.
+Only Claude Code writes or exchanges its credentials; local inspection stays
+read-only and never starts the CLI or a network request.
 """
 
 from __future__ import annotations
 
 import json
+import logging
 import os
 import subprocess
 import sys
@@ -26,6 +27,9 @@ from .base import BaseProvider, CredentialsUnreadable, ProviderError, SchemaErro
 USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
 KEYCHAIN_SERVICE = "Claude Code-credentials"
 KEYCHAIN_ITEM_NOT_FOUND = 44  # errSecItemNotFound, as `security` exits for a missing item
+CLI_AUTH_TIMEOUT = 15.0
+MIN_CLI_AUTH_INTERVAL = 60.0
+log = logging.getLogger("tokentray.claude")
 
 # Set once the keychain refuses a read. While access is refused, each `security`
 # call can bring the authorization prompt back, and both the poll timer and the
@@ -44,6 +48,8 @@ class ClaudeCreds:
     subscription: str | None = None
     expires_at: float | None = None   # epoch seconds
     source: str = "file"
+    has_refresh_token: bool = False
+    refresh_expires_at: float | None = None
 
 
 class ClaudeProvider(BaseProvider):
@@ -52,6 +58,12 @@ class ClaudeProvider(BaseProvider):
     def __init__(self, *args: Any, secrets: SecretStore | None = None, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self._secrets = secrets or default_store()
+        self._next_cli_auth = 0.0
+        self._cli_auth_failure = ""
+        self._cli_auth_failures = 0
+        self._cli_auth_login_required = False
+        self._cli_auth_identity: tuple[str, float | None, str] | None = None
+        self._reported_expiry: tuple[str, float | None] | None = None
 
     # -- credentials -----------------------------------------------------------
 
@@ -82,6 +94,87 @@ class ClaudeProvider(BaseProvider):
         if creds.expires_at is not None and creds.expires_at <= time.time():
             return Status.EXPIRED
         return None
+
+    def prepare_credentials(self, creds: ClaudeCreds, *, interactive: bool = False) -> ClaudeCreds | None:
+        if self.precheck(creds) is not Status.EXPIRED:
+            return creds
+        expiry = (creds.source, creds.expires_at)
+        if expiry != self._reported_expiry:
+            self._reported_expiry = expiry
+            log.info("provider=claude access_token_expired source=%s", creds.source)
+        if (not self.config.get("claude.renew_via_cli", True) or not creds.has_refresh_token
+                or creds.source not in ("file", "keychain")
+                or (creds.source == "keychain" and not interactive)
+                or (creds.refresh_expires_at is not None and creds.refresh_expires_at <= time.time())):
+            return creds
+
+        identity = (creds.access_token, creds.expires_at, creds.source)
+        if identity != self._cli_auth_identity:
+            self._cli_auth_identity = identity
+            self._cli_auth_failures = 0
+            self._cli_auth_login_required = False
+            self._cli_auth_failure = ""
+            self._next_cli_auth = 0.0
+        if self._cli_auth_login_required:
+            return creds
+
+        # Forced refreshes must not spawn a failing CLI on every button click.
+        if time.monotonic() < self._next_cli_auth:
+            if self._cli_auth_failure:
+                raise _renewal_error()
+            return creds
+        self._next_cli_auth = time.monotonic() + max(MIN_CLI_AUTH_INTERVAL, self.config.poll_interval)
+        self._cli_auth_failure = ""
+        from ..connections import find_cli
+
+        executable = find_cli("claude")
+        if executable is None:
+            log.info("provider=claude auth_renewal_skipped reason=cli_not_found")
+            return creds
+
+        environment = os.environ.copy()
+        override = environment.get("CLAUDE_CONFIG_DIR")
+        if override:
+            # The command runs outside the caller's project. Preserve the meaning
+            # of a relative account-directory override before changing cwd.
+            environment["CLAUDE_CONFIG_DIR"] = str(Path(override).expanduser().absolute())
+        options: dict[str, Any] = {}
+        if sys.platform == "win32":
+            options["creationflags"] = subprocess.CREATE_NO_WINDOW
+        reason = ""
+        exit_code = None
+        log.info("provider=claude auth_renewal_started method=cli")
+        try:
+            result = subprocess.run(
+                [str(executable), "auth", "status", "--json"],
+                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                cwd=Path.home(), env=environment, timeout=CLI_AUTH_TIMEOUT, check=False, **options,
+            )
+            exit_code = result.returncode
+        except subprocess.TimeoutExpired:
+            reason = "timeout"
+        except OSError:
+            reason = "cli_unavailable"
+
+        # Exit 0 only means the CLI considers itself logged in. Older versions
+        # can leave the access token expired; the credential store is the proof.
+        # Also accept a concurrent CLI renewal even if our command failed.
+        renewed = self.credentials(interactive=interactive)
+        if renewed is not None and self.precheck(renewed) is None:
+            self._cli_auth_failures = 0
+            log.info("provider=claude auth_renewal_succeeded method=cli")
+            return renewed
+        if not reason and exit_code == 1:
+            self._cli_auth_login_required = True
+            log.info("provider=claude auth_renewal_failed reason=login_required")
+            return renewed
+        reason = reason or ("credentials_still_expired" if exit_code == 0 else "cli_failed")
+        self._cli_auth_failure = reason
+        delay = max(self.config.poll_interval, min(300 * 2 ** min(self._cli_auth_failures, 4), 3600))
+        self._cli_auth_failures += 1
+        self._next_cli_auth = time.monotonic() + delay
+        log.warning("provider=claude auth_renewal_failed reason=%s retry_in_seconds=%s", reason, delay)
+        raise _renewal_error()
 
     # -- network ---------------------------------------------------------------
 
@@ -207,7 +300,13 @@ def _from_blob(data: Any, source: str) -> ClaudeCreds | None:
         subscription=oauth.get("subscriptionType") or None,
         expires_at=_expiry_seconds(oauth.get("expiresAt")),
         source=source,
+        has_refresh_token=isinstance(oauth.get("refreshToken"), str) and bool(oauth["refreshToken"]),
+        refresh_expires_at=_expiry_seconds(oauth.get("refreshTokenExpiresAt")),
     )
+
+
+def _renewal_error() -> ProviderError:
+    return ProviderError(Status.ERROR, "Claude Code could not renew its access token", failure_kind="auth_renewal")
 
 
 def _expiry_seconds(value: Any) -> float | None:

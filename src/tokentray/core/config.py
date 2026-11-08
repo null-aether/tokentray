@@ -34,6 +34,9 @@ DEFAULTS: dict[str, Any] = {
     "claude": {
         "enabled": True,
         "beta_header": "oauth-2025-04-20",
+        # Let the installed CLI renew its own expired login; never exchange or
+        # rewrite Claude Code's tokens from TokenTray itself.
+        "renew_via_cli": True,
     },
     "codex": {
         "enabled": True,

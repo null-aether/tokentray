@@ -196,6 +196,7 @@ TokenTray는 마지막 조회값을 유지하고 서버의 `Retry-After`와 사�
 | `language` | 시스템 언어 | `en` 또는 `ko` |
 | `webhook.enabled` / `webhook.kind` | `false` / `ntfy` | `slack`, `discord`, `ntfy`, `generic` 외부 알림 |
 | `codex.refresh` | `false` | tokentray가 Codex 토큰을 갱신하도록 허용 |
+| `claude.renew_via_cli` | `true` | Ask the installed Claude Code CLI to renew an expired access token |
 | `linux.force_xwayland` | `true` | 플랫폼별 참고 확인 |
 
 트레이 메뉴의 **알림 연동 설정…**에서 웹훅 한 곳을 설정하고 URL 확인과 테스트 전송을 할
@@ -309,6 +310,15 @@ tokentray는 Claude Code와 Codex가 이미 저장한 로그인 정보를 읽습
 - Claude 토큰 갱신은 Claude Code에 맡깁니다. Codex 토큰 갱신은 직접 켜야 하며
   (`codex.refresh`), 저장 직전에 `auth.json`을 다시 읽어 Codex CLI의 변경을 덮어쓰지
   않습니다.
+- With `claude.renew_via_cli` enabled, an expired, renewable Claude login runs
+  `claude auth status --json`, then re-reads the saved credentials. Only Claude
+  Code refreshes or writes its tokens; no model conversation is started and CLI
+  output is discarded. Valid tokens never start this command. Temporary failures
+  keep stale usage and retry after 5, 10, 20, 40, then 60 minutes (or the polling
+  interval, if longer), including forced refreshes. A CLI-reported lost login stops
+  retries until credentials change. Local inspection stays read-only; keychain
+  renewal needs an explicit refresh. Older CLIs that leave the token expired are
+  not treated as a successful renewal. Set the option to `false` to disable it.
 - `setup`에서 붙여 넣은 토큰은 OS 키링에 저장합니다. 붙여 넣은 Claude 토큰은 만료되면
   갱신할 수 없습니다.
 - `doctor`가 `no token in file`을 표시해도 로그아웃 상태라는 뜻은 아닐 수 있습니다. 파일에

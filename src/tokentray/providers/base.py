@@ -91,6 +91,10 @@ class BaseProvider:
         """Optional cheap check before spending a request (e.g. token expiry)."""
         return None
 
+    def prepare_credentials(self, creds: Any, *, interactive: bool = False) -> Any | None:
+        """Prepare credentials for an actual fetch, never for local inspection."""
+        return creds
+
     # -- driver ----------------------------------------------------------------
 
     @property
@@ -149,10 +153,14 @@ class BaseProvider:
 
         try:
             creds = self.credentials(interactive=force)
+            if creds is not None:
+                creds = self.prepare_credentials(creds, interactive=force)
         except CredentialsUnreadable as exc:
             # Like expiry, this is the user's to fix: no request, no backoff, and
             # no cached numbers dressed up as merely stale.
             return Snapshot(provider=self.id, status=Status.UNREADABLE, detail=exc.detail)
+        except ProviderError as exc:
+            return self._on_failure(exc, ttl, now)
         if creds is None:
             return Snapshot(provider=self.id, status=Status.NOT_CONFIGURED)
 
